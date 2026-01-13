@@ -579,12 +579,33 @@ class VoiceConferenceClient {
                     console.log(`Glare condition detected with ${fromSocketId} on ${channelId}`);
                     // Use tie-breaker: lexicographic comparison of socket IDs
                     const comparison = this.socket.id.localeCompare(fromSocketId);
-                    if (comparison > 0) {
-                        console.log(`Closing our offer and accepting theirs (${fromSocketId})`);
-                        this.closePeerConnection(fromSocketId, channelId);
-                        pc = null;
+                    
+                    // The peer with the "higher" socket ID (polite peer) rolls back
+                    const isPolite = comparison > 0;
+                    
+                    if (isPolite) {
+                        console.log(`Rolling back our offer (polite peer) and accepting theirs (${fromSocketId})`);
+                        // Rollback: set remote offer which will implicitly rollback our local offer
+                        await pc.setRemoteDescription(new RTCSessionDescription(offer));
+                        
+                        // Process any queued ICE candidates
+                        await this.processQueuedIceCandidates(fromSocketId, channelId, pc);
+                        
+                        // Create and send answer
+                        const answer = await pc.createAnswer();
+                        await pc.setLocalDescription(answer);
+                        
+                        this.socket.emit('webrtc-answer', {
+                            answer: pc.localDescription,
+                            targetSocketId: fromSocketId,
+                            channelId
+                        });
+                        
+                        console.log(`Sent answer to ${fromSocketId} on ${channelId} (after rollback)`);
+                        return;
                     } else {
-                        console.log(`Ignoring their offer, keeping ours (${fromSocketId})`);
+                        console.log(`Ignoring their offer (impolite peer), keeping ours (${fromSocketId})`);
+                        // The other peer will rollback and accept our offer
                         return;
                     }
                 } else if (pc.signalingState === 'stable') {
