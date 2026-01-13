@@ -532,13 +532,36 @@ class VoiceConferenceClient {
      */
     async handleOffer(offer, fromSocketId, channelId) {
         try {
-            // Create peer connection if it doesn't exist
-            if (!this.peerConnections.has(fromSocketId) || 
-                !this.peerConnections.get(fromSocketId).has(channelId)) {
+            // Check if connection already exists
+            let pc = null;
+            if (this.peerConnections.has(fromSocketId) && 
+                this.peerConnections.get(fromSocketId).has(channelId)) {
+                pc = this.peerConnections.get(fromSocketId).get(channelId);
+                
+                // Handle glare condition: both sides sent offers
+                if (pc.signalingState === 'have-local-offer') {
+                    console.log(`Glare condition detected with ${fromSocketId} on ${channelId}`);
+                    // Use tie-breaker: close and recreate if our socket ID is greater
+                    if (this.socket.id > fromSocketId) {
+                        console.log(`Closing our offer and accepting theirs (${fromSocketId})`);
+                        this.closePeerConnection(fromSocketId, channelId);
+                        pc = null;
+                    } else {
+                        console.log(`Ignoring their offer, keeping ours (${fromSocketId})`);
+                        return;
+                    }
+                } else if (pc.signalingState === 'stable') {
+                    console.log(`Connection already stable with ${fromSocketId} on ${channelId}, ignoring offer`);
+                    return;
+                }
+            }
+            
+            // Create peer connection if it doesn't exist or was closed
+            if (!pc) {
                 await this.createPeerConnection(fromSocketId, channelId, false);
+                pc = this.peerConnections.get(fromSocketId).get(channelId);
             }
 
-            const pc = this.peerConnections.get(fromSocketId).get(channelId);
             await pc.setRemoteDescription(new RTCSessionDescription(offer));
 
             // Create and send answer
@@ -550,6 +573,8 @@ class VoiceConferenceClient {
                 targetSocketId: fromSocketId,
                 channelId
             });
+            
+            console.log(`Sent answer to ${fromSocketId} on ${channelId}`);
 
         } catch (error) {
             console.error('Error handling offer:', error);
@@ -565,8 +590,21 @@ class VoiceConferenceClient {
                 const channelMap = this.peerConnections.get(fromSocketId);
                 if (channelMap.has(channelId)) {
                     const pc = channelMap.get(channelId);
-                    await pc.setRemoteDescription(new RTCSessionDescription(answer));
+                    
+                    // Check signaling state before setting remote description
+                    if (pc.signalingState === 'have-local-offer') {
+                        await pc.setRemoteDescription(new RTCSessionDescription(answer));
+                        console.log(`Set remote answer for ${fromSocketId} on ${channelId}`);
+                    } else if (pc.signalingState === 'stable') {
+                        console.log(`Connection already stable for ${fromSocketId} on ${channelId}, ignoring answer`);
+                    } else {
+                        console.warn(`Unexpected signaling state (${pc.signalingState}) when receiving answer from ${fromSocketId} on ${channelId}`);
+                    }
+                } else {
+                    console.warn(`No peer connection found for answer from ${fromSocketId} on ${channelId}`);
                 }
+            } else {
+                console.warn(`No socket entry found for answer from ${fromSocketId}`);
             }
         } catch (error) {
             console.error('Error handling answer:', error);
@@ -582,7 +620,14 @@ class VoiceConferenceClient {
                 const channelMap = this.peerConnections.get(fromSocketId);
                 if (channelMap.has(channelId)) {
                     const pc = channelMap.get(channelId);
-                    await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                    
+                    // Only add ICE candidate if remote description is set
+                    if (pc.remoteDescription) {
+                        await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                    } else {
+                        console.log(`Queuing ICE candidate from ${fromSocketId} on ${channelId} until remote description is set`);
+                        // Store candidate to add later (could implement queue if needed)
+                    }
                 }
             }
         } catch (error) {
