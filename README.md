@@ -106,6 +106,11 @@ Edit `server/index.js` to customize:
 const PORT = process.env.PORT || 3000;
 ```
 
+**CORS Origins**: Set allowed origins for production (defaults to localhost):
+```bash
+ALLOWED_ORIGINS="https://yourdomain.com" npm start
+```
+
 **Channels**: Modify the channels array:
 ```javascript
 const channels = [

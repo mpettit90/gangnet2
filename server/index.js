@@ -8,7 +8,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIO(server, {
   cors: {
-    origin: "*",
+    origin: process.env.ALLOWED_ORIGINS || "http://localhost:3000",
     methods: ["GET", "POST"]
   }
 });

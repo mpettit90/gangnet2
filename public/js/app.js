@@ -401,13 +401,6 @@ class VoiceConferenceClient {
             this.socket.emit('transmit-start', { channelId });
         });
 
-        // Enable audio tracks
-        if (this.localStream) {
-            this.localStream.getAudioTracks().forEach(track => {
-                track.enabled = true;
-            });
-        }
-
         console.log('Started transmitting');
     }
 
@@ -425,13 +418,6 @@ class VoiceConferenceClient {
         this.transmitChannels.forEach(channelId => {
             this.socket.emit('transmit-stop', { channelId });
         });
-
-        // Disable audio tracks when not transmitting to save bandwidth
-        if (this.localStream) {
-            this.localStream.getAudioTracks().forEach(track => {
-                track.enabled = false;
-            });
-        }
 
         console.log('Stopped transmitting');
     }
@@ -689,8 +675,40 @@ class VoiceConferenceClient {
      * Show error message
      */
     showError(message) {
-        // Could implement a toast notification system
-        alert(message);
+        console.error('Error:', message);
+        
+        // Create a toast notification
+        const toast = document.createElement('div');
+        toast.className = 'toast-notification error';
+        toast.textContent = message;
+        toast.style.cssText = `
+            position: fixed;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: #f44336;
+            color: white;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+            z-index: 1000;
+            max-width: 90%;
+            text-align: center;
+            font-size: 0.875rem;
+            animation: slideDown 0.3s ease;
+        `;
+        
+        document.body.appendChild(toast);
+        
+        // Remove toast after 5 seconds
+        setTimeout(() => {
+            toast.style.animation = 'slideUp 0.3s ease';
+            setTimeout(() => {
+                if (toast.parentNode) {
+                    toast.parentNode.removeChild(toast);
+                }
+            }, 300);
+        }, 5000);
     }
 
     /**
