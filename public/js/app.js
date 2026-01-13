@@ -20,6 +20,9 @@ class VoiceConferenceClient {
         // Peer connections: Map<socketId, Map<channelId, RTCPeerConnection>>
         this.peerConnections = new Map();
         
+        // ICE candidate queues: Map<socketId-channelId, Array<RTCIceCandidate>>
+        this.iceCandidateQueues = new Map();
+        
         // Audio elements: Map<socketId-channelId, {element, gainNode, volume}>
         this.audioElements = new Map();
         
@@ -541,8 +544,9 @@ class VoiceConferenceClient {
                 // Handle glare condition: both sides sent offers
                 if (pc.signalingState === 'have-local-offer') {
                     console.log(`Glare condition detected with ${fromSocketId} on ${channelId}`);
-                    // Use tie-breaker: close and recreate if our socket ID is greater
-                    if (this.socket.id > fromSocketId) {
+                    // Use tie-breaker: lexicographic comparison of socket IDs
+                    const comparison = this.socket.id.localeCompare(fromSocketId);
+                    if (comparison > 0) {
                         console.log(`Closing our offer and accepting theirs (${fromSocketId})`);
                         this.closePeerConnection(fromSocketId, channelId);
                         pc = null;
@@ -563,6 +567,9 @@ class VoiceConferenceClient {
             }
 
             await pc.setRemoteDescription(new RTCSessionDescription(offer));
+            
+            // Process any queued ICE candidates
+            await this.processQueuedIceCandidates(fromSocketId, channelId, pc);
 
             // Create and send answer
             const answer = await pc.createAnswer();
@@ -595,6 +602,9 @@ class VoiceConferenceClient {
                     if (pc.signalingState === 'have-local-offer') {
                         await pc.setRemoteDescription(new RTCSessionDescription(answer));
                         console.log(`Set remote answer for ${fromSocketId} on ${channelId}`);
+                        
+                        // Process any queued ICE candidates
+                        await this.processQueuedIceCandidates(fromSocketId, channelId, pc);
                     } else if (pc.signalingState === 'stable') {
                         console.log(`Connection already stable for ${fromSocketId} on ${channelId}, ignoring answer`);
                     } else {
@@ -616,6 +626,8 @@ class VoiceConferenceClient {
      */
     async handleIceCandidate(candidate, fromSocketId, channelId) {
         try {
+            const key = `${fromSocketId}-${channelId}`;
+            
             if (this.peerConnections.has(fromSocketId)) {
                 const channelMap = this.peerConnections.get(fromSocketId);
                 if (channelMap.has(channelId)) {
@@ -624,14 +636,42 @@ class VoiceConferenceClient {
                     // Only add ICE candidate if remote description is set
                     if (pc.remoteDescription) {
                         await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                        console.log(`Added ICE candidate from ${fromSocketId} on ${channelId}`);
                     } else {
-                        console.log(`Queuing ICE candidate from ${fromSocketId} on ${channelId} until remote description is set`);
-                        // Store candidate to add later (could implement queue if needed)
+                        // Queue the candidate for later
+                        if (!this.iceCandidateQueues.has(key)) {
+                            this.iceCandidateQueues.set(key, []);
+                        }
+                        this.iceCandidateQueues.get(key).push(candidate);
+                        console.log(`Queued ICE candidate from ${fromSocketId} on ${channelId} (queue size: ${this.iceCandidateQueues.get(key).length})`);
                     }
                 }
             }
         } catch (error) {
             console.error('Error handling ICE candidate:', error);
+        }
+    }
+
+    /**
+     * Process queued ICE candidates after remote description is set
+     */
+    async processQueuedIceCandidates(socketId, channelId, pc) {
+        const key = `${socketId}-${channelId}`;
+        
+        if (this.iceCandidateQueues.has(key)) {
+            const queue = this.iceCandidateQueues.get(key);
+            console.log(`Processing ${queue.length} queued ICE candidates for ${socketId} on ${channelId}`);
+            
+            for (const candidate of queue) {
+                try {
+                    await pc.addIceCandidate(new RTCIceCandidate(candidate));
+                } catch (error) {
+                    console.error(`Error adding queued ICE candidate:`, error);
+                }
+            }
+            
+            // Clear the queue
+            this.iceCandidateQueues.delete(key);
         }
     }
 
@@ -691,6 +731,8 @@ class VoiceConferenceClient {
      * Close a specific peer connection
      */
     closePeerConnection(socketId, channelId) {
+        const key = `${socketId}-${channelId}`;
+        
         if (this.peerConnections.has(socketId)) {
             const channelMap = this.peerConnections.get(socketId);
             if (channelMap.has(channelId)) {
@@ -703,7 +745,6 @@ class VoiceConferenceClient {
                 }
                 
                 // Remove audio setup
-                const key = `${socketId}-${channelId}`;
                 if (this.audioElements.has(key)) {
                     const audioData = this.audioElements.get(key);
                     if (audioData.source) {
@@ -713,6 +754,12 @@ class VoiceConferenceClient {
                         audioData.gainNode.disconnect();
                     }
                     this.audioElements.delete(key);
+                }
+                
+                // Clear ICE candidate queue
+                if (this.iceCandidateQueues.has(key)) {
+                    this.iceCandidateQueues.delete(key);
+                    console.log(`Cleared ICE candidate queue for ${key}`);
                 }
             }
         }
