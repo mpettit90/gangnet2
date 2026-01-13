@@ -147,18 +147,23 @@ class VoiceConferenceClient {
     }
 
     /**
+     * Resume audio context (required by browser autoplay policy)
+     */
+    async resumeAudioContext() {
+        if (this.audioContext && this.audioContext.state === 'suspended') {
+            try {
+                await this.audioContext.resume();
+                console.log('Audio context resumed');
+            } catch (error) {
+                console.error('Failed to resume audio context:', error);
+            }
+        }
+    }
+
+    /**
      * Setup UI event handlers
      */
     setupUIHandlers() {
-        // Resume audio context on user interaction (required by browser autoplay policy)
-        const resumeAudio = () => {
-            if (this.audioContext && this.audioContext.state === 'suspended') {
-                this.audioContext.resume().then(() => {
-                    console.log('Audio context resumed');
-                });
-            }
-        };
-        
         // Transmit mode toggle
         const pttModeBtn = document.getElementById('pttMode');
         const latchModeBtn = document.getElementById('latchMode');
@@ -166,7 +171,7 @@ class VoiceConferenceClient {
         const pttButton = document.getElementById('pttButton');
 
         pttModeBtn.addEventListener('click', () => {
-            resumeAudio();
+            this.resumeAudioContext();
             this.transmitMode = 'ptt';
             pttModeBtn.classList.add('active');
             latchModeBtn.classList.remove('active');
@@ -177,7 +182,7 @@ class VoiceConferenceClient {
         });
 
         latchModeBtn.addEventListener('click', () => {
-            resumeAudio();
+            this.resumeAudioContext();
             this.transmitMode = 'latch';
             latchModeBtn.classList.add('active');
             pttModeBtn.classList.remove('active');
@@ -190,7 +195,7 @@ class VoiceConferenceClient {
         // Mouse events
         pttButton.addEventListener('mousedown', (e) => {
             e.preventDefault();
-            resumeAudio();
+            this.resumeAudioContext();
             if (this.transmitMode === 'ptt') {
                 this.startTransmit();
             }
@@ -212,7 +217,7 @@ class VoiceConferenceClient {
         // Touch events for mobile
         pttButton.addEventListener('touchstart', (e) => {
             e.preventDefault();
-            resumeAudio();
+            this.resumeAudioContext();
             if (this.transmitMode === 'ptt') {
                 this.startTransmit();
             }
@@ -227,7 +232,7 @@ class VoiceConferenceClient {
 
         // Click for latch mode
         pttButton.addEventListener('click', (e) => {
-            resumeAudio();
+            this.resumeAudioContext();
             if (this.transmitMode === 'latch') {
                 if (this.isTransmitting) {
                     this.stopTransmit();
@@ -362,10 +367,7 @@ class VoiceConferenceClient {
      */
     async toggleChannel(channelId, enabled) {
         // Resume audio context on user interaction
-        if (this.audioContext && this.audioContext.state === 'suspended') {
-            await this.audioContext.resume();
-            console.log('Audio context resumed');
-        }
+        await this.resumeAudioContext();
         
         if (enabled) {
             this.activeChannels.add(channelId);
@@ -591,7 +593,7 @@ class VoiceConferenceClient {
     /**
      * Handle remote track (incoming audio)
      */
-    handleRemoteTrack(event, socketId, channelId) {
+    async handleRemoteTrack(event, socketId, channelId) {
         const key = `${socketId}-${channelId}`;
         
         console.log(`Setting up audio for ${key}`);
@@ -610,9 +612,7 @@ class VoiceConferenceClient {
         
         try {
             // Resume audio context if suspended (browser autoplay policy)
-            if (this.audioContext.state === 'suspended') {
-                this.audioContext.resume();
-            }
+            await this.resumeAudioContext();
             
             // Create audio graph: source -> gain -> destination
             const source = this.audioContext.createMediaStreamSource(event.streams[0]);
