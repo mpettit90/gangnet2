@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#1a1a1a">
+    <title>GangNet2 - Voice Conferencing</title>
+    <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <h1>GangNet2</h1>
+            <div class="status-indicator" id="connectionStatus">
+                <span class="status-dot"></span>
+                <span class="status-text">Connecting...</span>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="app-main">
+            <!-- Transmit Mode Toggle -->
+            <section class="mode-section">
+                <h2>Transmit Mode</h2>
+                <div class="mode-toggle">
+                    <button class="mode-btn active" id="pttMode" data-mode="ptt">
+                        <span class="icon">👆</span>
+                        Push-to-Talk
+                    </button>
+                    <button class="mode-btn" id="latchMode" data-mode="latch">
+                        <span class="icon">🔒</span>
+                        Latch
+                    </button>
+                </div>
+            </section>
+
+            <!-- PTT Button (visible in PTT mode) -->
+            <section class="ptt-section" id="pttSection">
+                <button class="ptt-button" id="pttButton">
+                    <span class="ptt-text">Hold to Talk</span>
+                    <span class="ptt-icon">🎤</span>
+                </button>
+            </section>
+
+            <!-- Channels List -->
+            <section class="channels-section">
+                <h2>Channels</h2>
+                <div class="channels-list" id="channelsList">
+                    <!-- Channels will be dynamically inserted here -->
+                </div>
+            </section>
+
+            <!-- Instructions -->
+            <section class="instructions">
+                <p><strong>How to use:</strong></p>
+                <ul>
+                    <li>Toggle channel switches to enable listening on channels</li>
+                    <li>Check "TX" to transmit to specific channels</li>
+                    <li>Use volume sliders to adjust per-channel volume</li>
+                    <li><strong>PTT mode:</strong> Hold the button to talk</li>
+                    <li><strong>Latch mode:</strong> Click once to talk, click again to stop</li>
+                </ul>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p>WebRTC Voice Conferencing &copy; 2024</p>
+        </footer>
+    </div>
+
+    <!-- Audio elements for remote streams will be added dynamically -->
+    <div id="audioContainer" style="display: none;"></div>
+
+    <!-- Scripts -->
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="/js/app.js"></script>
+</body>
+</html>

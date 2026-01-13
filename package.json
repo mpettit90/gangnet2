@@ -1,0 +1,27 @@
+{
+  "name": "gangnet2",
+  "version": "1.0.0",
+  "description": "Mobile-first WebRTC voice conferencing solution with multi-channel support",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js"
+  },
+  "keywords": [
+    "webrtc",
+    "voice",
+    "conferencing",
+    "audio",
+    "channels"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "socket.io": "^4.6.1",
+    "uuid": "^9.0.0"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
