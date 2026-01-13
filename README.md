@@ -2,6 +2,31 @@
 
 A modern, mobile-first voice conferencing web solution built with WebRTC, Node.js, and vanilla JavaScript. Features multi-channel audio support with individual volume controls and flexible transmit modes.
 
+## Quick Start
+
+Get the application running in under 2 minutes:
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/mpettit90/gangnet2.git
+cd gangnet2
+
+# 2. Install dependencies
+npm install
+
+# 3. Start the server
+npm start
+
+# 4. Open your browser to http://localhost:3000
+```
+
+The server will start on port 3000. Open the URL in your browser, grant microphone access when prompted, and you're ready to start voice conferencing!
+
+**Note**: For production deployment, configure CORS origins using the `ALLOWED_ORIGINS` environment variable:
+```bash
+ALLOWED_ORIGINS="https://yourdomain.com" npm start
+```
+
 ## Features
 
 - **Multi-Channel Audio**: Listen to multiple channels simultaneously with independent volume controls
