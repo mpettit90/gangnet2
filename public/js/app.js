@@ -477,6 +477,15 @@ class VoiceConferenceClient {
 
             // Add local stream
             if (this.localStream) {
+                console.log(`Adding local stream tracks to peer connection:`, {
+                    trackCount: this.localStream.getTracks().length,
+                    tracks: this.localStream.getTracks().map(t => ({
+                        kind: t.kind,
+                        enabled: t.enabled,
+                        readyState: t.readyState,
+                        muted: t.muted
+                    }))
+                });
                 this.localStream.getTracks().forEach(track => {
                     pc.addTrack(track, this.localStream);
                 });
@@ -495,7 +504,13 @@ class VoiceConferenceClient {
 
             // Handle incoming tracks
             pc.ontrack = (event) => {
-                console.log(`Received remote track from ${socketId} on ${channelId}`);
+                console.log(`Received remote track from ${socketId} on ${channelId}`, {
+                    trackKind: event.track.kind,
+                    trackEnabled: event.track.enabled,
+                    trackMuted: event.track.muted,
+                    trackReadyState: event.track.readyState,
+                    streamsCount: event.streams.length
+                });
                 this.handleRemoteTrack(event, socketId, channelId);
             };
 
@@ -681,16 +696,29 @@ class VoiceConferenceClient {
     async handleRemoteTrack(event, socketId, channelId) {
         const key = `${socketId}-${channelId}`;
         
-        console.log(`Setting up audio for ${key}`);
+        console.log(`Setting up audio for ${key}`, {
+            streams: event.streams.length,
+            tracks: event.streams[0]?.getTracks().length,
+            trackEnabled: event.track?.enabled,
+            trackReadyState: event.track?.readyState
+        });
         
         // Remove existing audio setup if present
         if (this.audioElements.has(key)) {
             const oldAudioData = this.audioElements.get(key);
             if (oldAudioData.source) {
-                oldAudioData.source.disconnect();
+                try {
+                    oldAudioData.source.disconnect();
+                } catch (e) {
+                    console.warn('Error disconnecting old source:', e);
+                }
             }
             if (oldAudioData.gainNode) {
-                oldAudioData.gainNode.disconnect();
+                try {
+                    oldAudioData.gainNode.disconnect();
+                } catch (e) {
+                    console.warn('Error disconnecting old gain node:', e);
+                }
             }
             this.audioElements.delete(key);
         }
@@ -699,14 +727,32 @@ class VoiceConferenceClient {
             // Resume audio context if suspended (browser autoplay policy)
             await this.resumeAudioContext();
             
+            console.log(`Audio context state: ${this.audioContext.state}`);
+            
+            // Verify we have a valid stream
+            if (!event.streams || !event.streams[0]) {
+                console.error('No stream in track event');
+                return;
+            }
+            
+            const stream = event.streams[0];
+            const audioTracks = stream.getAudioTracks();
+            
+            console.log(`Stream has ${audioTracks.length} audio tracks`);
+            audioTracks.forEach((track, i) => {
+                console.log(`Track ${i}: enabled=${track.enabled}, readyState=${track.readyState}, muted=${track.muted}`);
+            });
+            
             // Create audio graph: source -> gain -> destination
-            const source = this.audioContext.createMediaStreamSource(event.streams[0]);
+            const source = this.audioContext.createMediaStreamSource(stream);
             const gainNode = this.audioContext.createGain();
             
             // Get current volume setting for this channel
             const volumeSlider = document.querySelector(`.volume-slider[data-channel-id="${channelId}"]`);
             const volume = volumeSlider ? volumeSlider.value / 100 : 0.75;
             gainNode.gain.value = volume;
+            
+            console.log(`Connecting audio graph with volume: ${volume}`);
             
             // Connect audio graph
             source.connect(gainNode);
@@ -717,13 +763,14 @@ class VoiceConferenceClient {
                 source: source,
                 gainNode: gainNode,
                 volume: volume,
-                stream: event.streams[0]
+                stream: stream
             });
             
-            console.log(`Audio setup complete for ${key}, volume: ${volume}`);
+            console.log(`Audio setup complete for ${key}, volume: ${volume}, audioContext.state: ${this.audioContext.state}`);
             
         } catch (error) {
             console.error(`Error setting up audio for ${key}:`, error);
+            console.error('Error stack:', error.stack);
         }
     }
 
