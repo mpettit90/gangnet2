@@ -263,7 +263,25 @@ class VoiceConferenceClient {
                 video: false
             });
             
-            console.log('Local stream acquired');
+            // Log track details
+            const tracks = this.localStream.getTracks();
+            console.log('Local stream acquired', {
+                trackCount: tracks.length,
+                tracks: tracks.map(t => ({
+                    kind: t.kind,
+                    enabled: t.enabled,
+                    muted: t.muted,
+                    readyState: t.readyState
+                }))
+            });
+            
+            // Ensure all tracks are enabled
+            tracks.forEach(track => {
+                if (!track.enabled) {
+                    console.warn('Enabling disabled track:', track.kind);
+                    track.enabled = true;
+                }
+            });
             
             // Initialize audio context
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -739,8 +757,19 @@ class VoiceConferenceClient {
             const audioTracks = stream.getAudioTracks();
             
             console.log(`Stream has ${audioTracks.length} audio tracks`);
+            
+            // Check track state and add unmute listener
             audioTracks.forEach((track, i) => {
                 console.log(`Track ${i}: enabled=${track.enabled}, readyState=${track.readyState}, muted=${track.muted}`);
+                
+                if (track.muted) {
+                    console.warn(`⚠️ Track ${i} is MUTED - audio will play when remote peer unmutes`);
+                    
+                    // Add unmute listener
+                    track.addEventListener('unmute', () => {
+                        console.log(`✅ Track ${i} UNMUTED - audio should now be audible`);
+                    });
+                }
             });
             
             // Create audio graph: source -> gain -> destination
