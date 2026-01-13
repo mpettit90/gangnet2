@@ -150,6 +150,15 @@ class VoiceConferenceClient {
      * Setup UI event handlers
      */
     setupUIHandlers() {
+        // Resume audio context on user interaction (required by browser autoplay policy)
+        const resumeAudio = () => {
+            if (this.audioContext && this.audioContext.state === 'suspended') {
+                this.audioContext.resume().then(() => {
+                    console.log('Audio context resumed');
+                });
+            }
+        };
+        
         // Transmit mode toggle
         const pttModeBtn = document.getElementById('pttMode');
         const latchModeBtn = document.getElementById('latchMode');
@@ -157,6 +166,7 @@ class VoiceConferenceClient {
         const pttButton = document.getElementById('pttButton');
 
         pttModeBtn.addEventListener('click', () => {
+            resumeAudio();
             this.transmitMode = 'ptt';
             pttModeBtn.classList.add('active');
             latchModeBtn.classList.remove('active');
@@ -167,6 +177,7 @@ class VoiceConferenceClient {
         });
 
         latchModeBtn.addEventListener('click', () => {
+            resumeAudio();
             this.transmitMode = 'latch';
             latchModeBtn.classList.add('active');
             pttModeBtn.classList.remove('active');
@@ -179,6 +190,7 @@ class VoiceConferenceClient {
         // Mouse events
         pttButton.addEventListener('mousedown', (e) => {
             e.preventDefault();
+            resumeAudio();
             if (this.transmitMode === 'ptt') {
                 this.startTransmit();
             }
@@ -200,6 +212,7 @@ class VoiceConferenceClient {
         // Touch events for mobile
         pttButton.addEventListener('touchstart', (e) => {
             e.preventDefault();
+            resumeAudio();
             if (this.transmitMode === 'ptt') {
                 this.startTransmit();
             }
@@ -214,6 +227,7 @@ class VoiceConferenceClient {
 
         // Click for latch mode
         pttButton.addEventListener('click', (e) => {
+            resumeAudio();
             if (this.transmitMode === 'latch') {
                 if (this.isTransmitting) {
                     this.stopTransmit();
@@ -347,6 +361,12 @@ class VoiceConferenceClient {
      * Toggle channel on/off
      */
     async toggleChannel(channelId, enabled) {
+        // Resume audio context on user interaction
+        if (this.audioContext && this.audioContext.state === 'suspended') {
+            await this.audioContext.resume();
+            console.log('Audio context resumed');
+        }
+        
         if (enabled) {
             this.activeChannels.add(channelId);
             this.socket.emit('join-channel', { channelId });
@@ -574,11 +594,25 @@ class VoiceConferenceClient {
     handleRemoteTrack(event, socketId, channelId) {
         const key = `${socketId}-${channelId}`;
         
-        // Create audio element if it doesn't exist
-        if (!this.audioElements.has(key)) {
-            const audioElement = document.createElement('audio');
-            audioElement.autoplay = true;
-            audioElement.id = `audio-${key}`;
+        console.log(`Setting up audio for ${key}`);
+        
+        // Remove existing audio setup if present
+        if (this.audioElements.has(key)) {
+            const oldAudioData = this.audioElements.get(key);
+            if (oldAudioData.source) {
+                oldAudioData.source.disconnect();
+            }
+            if (oldAudioData.gainNode) {
+                oldAudioData.gainNode.disconnect();
+            }
+            this.audioElements.delete(key);
+        }
+        
+        try {
+            // Resume audio context if suspended (browser autoplay policy)
+            if (this.audioContext.state === 'suspended') {
+                this.audioContext.resume();
+            }
             
             // Create audio graph: source -> gain -> destination
             const source = this.audioContext.createMediaStreamSource(event.streams[0]);
@@ -589,22 +623,23 @@ class VoiceConferenceClient {
             const volume = volumeSlider ? volumeSlider.value / 100 : 0.75;
             gainNode.gain.value = volume;
             
+            // Connect audio graph
             source.connect(gainNode);
             gainNode.connect(this.audioContext.destination);
             
-            // Store audio element and gain node
+            // Store audio setup
             this.audioElements.set(key, {
-                element: audioElement,
+                source: source,
                 gainNode: gainNode,
-                volume: volume
+                volume: volume,
+                stream: event.streams[0]
             });
             
-            document.getElementById('audioContainer').appendChild(audioElement);
+            console.log(`Audio setup complete for ${key}, volume: ${volume}`);
+            
+        } catch (error) {
+            console.error(`Error setting up audio for ${key}:`, error);
         }
-        
-        // Update audio element stream
-        const audioData = this.audioElements.get(key);
-        audioData.element.srcObject = event.streams[0];
     }
 
     /**
@@ -622,12 +657,12 @@ class VoiceConferenceClient {
                     this.peerConnections.delete(socketId);
                 }
                 
-                // Remove audio element
+                // Remove audio setup
                 const key = `${socketId}-${channelId}`;
                 if (this.audioElements.has(key)) {
                     const audioData = this.audioElements.get(key);
-                    if (audioData.element.parentNode) {
-                        audioData.element.parentNode.removeChild(audioData.element);
+                    if (audioData.source) {
+                        audioData.source.disconnect();
                     }
                     if (audioData.gainNode) {
                         audioData.gainNode.disconnect();
@@ -723,10 +758,10 @@ class VoiceConferenceClient {
         });
         this.peerConnections.clear();
 
-        // Remove all audio elements
+        // Remove all audio setups
         this.audioElements.forEach((audioData, key) => {
-            if (audioData.element.parentNode) {
-                audioData.element.parentNode.removeChild(audioData.element);
+            if (audioData.source) {
+                audioData.source.disconnect();
             }
             if (audioData.gainNode) {
                 audioData.gainNode.disconnect();
