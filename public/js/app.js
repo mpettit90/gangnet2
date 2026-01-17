@@ -933,7 +933,7 @@ class VoiceConferenceClient {
             
             // Check track state and add unmute listener
             audioTracks.forEach((track, i) => {
-                console.log(`🔊 Track ${i}: enabled=${track.enabled}, readyState=${track.readyState}, muted=${track.muted}`);
+                console.log(`🔊 Track ${i}: enabled=${track.enabled}, readyState=${track.readyState}, muted=${track.muted}, label=${track.label}`);
                 
                 if (track.muted) {
                     console.warn(`⚠️ Track ${i} is MUTED - audio will play when remote peer unmutes`);
@@ -943,13 +943,26 @@ class VoiceConferenceClient {
                         console.log(`✅ Track ${i} UNMUTED - audio should now be audible`);
                     });
                 }
+                
+                // Add event listener to detect when track actually starts providing data
+                track.addEventListener('started', () => {
+                    console.log(`🎵 Track ${i} STARTED - audio data is now flowing`);
+                });
+                
+                track.addEventListener('ended', () => {
+                    console.warn(`⚠️ Track ${i} ENDED - audio stopped`);
+                });
             });
             
             // Create audio graph: source -> analyser -> gain -> destination
             const source = this.audioContext.createMediaStreamSource(stream);
+            console.log(`🔊 Created MediaStreamSource from stream with ${stream.getAudioTracks().length} audio tracks`);
+            console.log(`🔊 Stream ID: ${stream.id}, active: ${stream.active}`);
+            
             const analyser = this.audioContext.createAnalyser();
             analyser.fftSize = 256;
             analyser.smoothingTimeConstant = 0.8;
+            console.log(`🔊 Created AnalyserNode with FFT size ${analyser.fftSize}`);
             
             const gainNode = this.audioContext.createGain();
             
@@ -1028,10 +1041,18 @@ class VoiceConferenceClient {
         const vuMeter = document.querySelector(`.vu-meter[data-channel-id="${channelId}"]`);
         const vuBar = vuMeter?.querySelector('.vu-meter-bar');
         
-        if (!vuBar || !analyser) return;
+        if (!vuBar || !analyser) {
+            console.warn(`⚠️ VU meter not started for ${channelId}: vuBar=${!!vuBar}, analyser=${!!analyser}`);
+            return;
+        }
+        
+        console.log(`🎵 Starting VU meter for channel ${channelId}`);
         
         const bufferLength = analyser.frequencyBinCount;
         const dataArray = new Uint8Array(bufferLength);
+        
+        let sampleCount = 0;
+        let hasDetectedAudio = false;
         
         const intervalId = setInterval(() => {
             analyser.getByteFrequencyData(dataArray);
@@ -1042,6 +1063,16 @@ class VoiceConferenceClient {
             
             // Convert to percentage (0-100)
             const percentage = (average / 255) * 100;
+            
+            // Debug logging for first few samples or when audio is detected
+            sampleCount++;
+            if (sampleCount <= 5 || (percentage > 1 && !hasDetectedAudio)) {
+                console.log(`🎵 VU meter ${channelId}: avg=${average.toFixed(2)}, percentage=${percentage.toFixed(2)}%, sum=${sum}`);
+                if (percentage > 1) {
+                    hasDetectedAudio = true;
+                    console.log(`✅ Audio detected on channel ${channelId}!`);
+                }
+            }
             
             // Update VU meter bar
             vuBar.style.width = `${percentage}%`;
