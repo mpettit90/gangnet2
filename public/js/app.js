@@ -158,7 +158,19 @@ class VoiceConferenceClient {
      * Resume audio context (required by browser autoplay policy)
      */
     async resumeAudioContext() {
-        if (this.audioContext && this.audioContext.state === 'suspended') {
+        // Create audio context if it doesn't exist yet
+        if (!this.audioContext) {
+            try {
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                console.log('Audio context created');
+            } catch (error) {
+                console.error('Failed to create audio context:', error);
+                return;
+            }
+        }
+        
+        // Resume if suspended
+        if (this.audioContext.state === 'suspended') {
             try {
                 await this.audioContext.resume();
                 console.log('Audio context resumed');
@@ -288,8 +300,8 @@ class VoiceConferenceClient {
                 }
             });
             
-            // Initialize audio context
-            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            // Initialize audio context (will create if not exists)
+            await this.resumeAudioContext();
             
             // Setup analyser for local microphone (for PTT VU meter)
             this.setupLocalAnalyser();
