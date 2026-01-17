@@ -23,11 +23,16 @@ class VoiceConferenceClient {
         // ICE candidate queues: Map<socketId-channelId, Array<RTCIceCandidate>>
         this.iceCandidateQueues = new Map();
         
-        // Audio elements: Map<socketId-channelId, {element, gainNode, volume}>
+        // Audio elements: Map<socketId-channelId, {element, gainNode, volume, analyser}>
         this.audioElements = new Map();
         
         // Web Audio API context for volume control
         this.audioContext = null;
+        
+        // VU meter state
+        this.vuMeterIntervals = new Map(); // Channel VU meter intervals
+        this.localAnalyser = null; // Analyser for local microphone
+        this.localVUInterval = null; // Interval for local VU meter
         
         // Transmit state
         this.transmitMode = 'ptt'; // 'ptt' or 'latch'
@@ -286,10 +291,93 @@ class VoiceConferenceClient {
             // Initialize audio context
             this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
             
+            // Setup analyser for local microphone (for PTT VU meter)
+            this.setupLocalAnalyser();
+            
         } catch (error) {
             console.error('Error accessing microphone:', error);
             this.showError('Microphone access denied. Please allow microphone access to use this application.');
             throw error;
+        }
+    }
+
+    /**
+     * Setup analyser node for local microphone
+     */
+    setupLocalAnalyser() {
+        if (!this.localStream || !this.audioContext) return;
+        
+        try {
+            // Create analyser node
+            this.localAnalyser = this.audioContext.createAnalyser();
+            this.localAnalyser.fftSize = 256;
+            this.localAnalyser.smoothingTimeConstant = 0.8;
+            
+            // Connect local stream to analyser (but not to destination - we don't want feedback)
+            const source = this.audioContext.createMediaStreamSource(this.localStream);
+            source.connect(this.localAnalyser);
+            
+            // Start VU meter animation for PTT button
+            this.startLocalVUMeter();
+            
+        } catch (error) {
+            console.error('Error setting up local analyser:', error);
+        }
+    }
+
+    /**
+     * Start VU meter animation for local microphone
+     */
+    startLocalVUMeter() {
+        if (this.localVUInterval) {
+            clearInterval(this.localVUInterval);
+        }
+        
+        const vuMeter = document.getElementById('pttVUMeter');
+        const vuBar = vuMeter?.querySelector('.ptt-vu-meter-bar');
+        
+        if (!vuBar || !this.localAnalyser) return;
+        
+        const bufferLength = this.localAnalyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        
+        this.localVUInterval = setInterval(() => {
+            this.localAnalyser.getByteFrequencyData(dataArray);
+            
+            // Calculate average volume (0-255)
+            const sum = dataArray.reduce((a, b) => a + b, 0);
+            const average = sum / bufferLength;
+            
+            // Convert to percentage (0-100)
+            const percentage = (average / 255) * 100;
+            
+            // Update VU meter bar
+            vuBar.style.width = `${percentage}%`;
+            
+            // Add color based on level
+            if (percentage > 75) {
+                vuBar.style.backgroundColor = '#f44336'; // Red for clipping
+            } else if (percentage > 50) {
+                vuBar.style.backgroundColor = '#ff9800'; // Orange for high
+            } else {
+                vuBar.style.backgroundColor = '#4CAF50'; // Green for normal
+            }
+        }, 50); // Update 20 times per second
+    }
+
+    /**
+     * Stop VU meter animation for local microphone
+     */
+    stopLocalVUMeter() {
+        if (this.localVUInterval) {
+            clearInterval(this.localVUInterval);
+            this.localVUInterval = null;
+        }
+        
+        const vuMeter = document.getElementById('pttVUMeter');
+        const vuBar = vuMeter?.querySelector('.ptt-vu-meter-bar');
+        if (vuBar) {
+            vuBar.style.width = '0%';
         }
     }
 
@@ -344,6 +432,9 @@ class VoiceConferenceClient {
                 </div>
                 <div class="volume-control">
                     <span class="volume-icon">🔊</span>
+                    <div class="vu-meter" data-channel-id="${channel.id}">
+                        <div class="vu-meter-bar"></div>
+                    </div>
                     <input type="range" 
                            class="volume-slider" 
                            min="0" 
@@ -793,8 +884,12 @@ class VoiceConferenceClient {
                 }
             });
             
-            // Create audio graph: source -> gain -> destination
+            // Create audio graph: source -> analyser -> gain -> destination
             const source = this.audioContext.createMediaStreamSource(stream);
+            const analyser = this.audioContext.createAnalyser();
+            analyser.fftSize = 256;
+            analyser.smoothingTimeConstant = 0.8;
+            
             const gainNode = this.audioContext.createGain();
             
             // Get current volume setting for this channel
@@ -805,22 +900,84 @@ class VoiceConferenceClient {
             console.log(`Connecting audio graph with volume: ${volume}`);
             
             // Connect audio graph
-            source.connect(gainNode);
+            source.connect(analyser);
+            analyser.connect(gainNode);
             gainNode.connect(this.audioContext.destination);
             
             // Store audio setup
             this.audioElements.set(key, {
                 source: source,
+                analyser: analyser,
                 gainNode: gainNode,
                 volume: volume,
                 stream: stream
             });
+            
+            // Start VU meter for this channel
+            this.startChannelVUMeter(channelId, analyser);
             
             console.log(`Audio setup complete for ${key}, volume: ${volume}, audioContext.state: ${this.audioContext.state}`);
             
         } catch (error) {
             console.error(`Error setting up audio for ${key}:`, error);
             console.error('Error stack:', error.stack);
+        }
+    }
+
+    /**
+     * Start VU meter for a specific channel
+     */
+    startChannelVUMeter(channelId, analyser) {
+        // Stop existing VU meter for this channel
+        this.stopChannelVUMeter(channelId);
+        
+        const vuMeter = document.querySelector(`.vu-meter[data-channel-id="${channelId}"]`);
+        const vuBar = vuMeter?.querySelector('.vu-meter-bar');
+        
+        if (!vuBar || !analyser) return;
+        
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        
+        const intervalId = setInterval(() => {
+            analyser.getByteFrequencyData(dataArray);
+            
+            // Calculate average volume (0-255)
+            const sum = dataArray.reduce((a, b) => a + b, 0);
+            const average = sum / bufferLength;
+            
+            // Convert to percentage (0-100)
+            const percentage = (average / 255) * 100;
+            
+            // Update VU meter bar
+            vuBar.style.width = `${percentage}%`;
+            
+            // Add color based on level
+            if (percentage > 75) {
+                vuBar.style.backgroundColor = '#f44336'; // Red for clipping
+            } else if (percentage > 50) {
+                vuBar.style.backgroundColor = '#ff9800'; // Orange for high
+            } else {
+                vuBar.style.backgroundColor = '#4CAF50'; // Green for normal
+            }
+        }, 50); // Update 20 times per second
+        
+        this.vuMeterIntervals.set(channelId, intervalId);
+    }
+
+    /**
+     * Stop VU meter for a specific channel
+     */
+    stopChannelVUMeter(channelId) {
+        if (this.vuMeterIntervals.has(channelId)) {
+            clearInterval(this.vuMeterIntervals.get(channelId));
+            this.vuMeterIntervals.delete(channelId);
+        }
+        
+        const vuMeter = document.querySelector(`.vu-meter[data-channel-id="${channelId}"]`);
+        const vuBar = vuMeter?.querySelector('.vu-meter-bar');
+        if (vuBar) {
+            vuBar.style.width = '0%';
         }
     }
 
@@ -847,11 +1004,17 @@ class VoiceConferenceClient {
                     if (audioData.source) {
                         audioData.source.disconnect();
                     }
+                    if (audioData.analyser) {
+                        audioData.analyser.disconnect();
+                    }
                     if (audioData.gainNode) {
                         audioData.gainNode.disconnect();
                     }
                     this.audioElements.delete(key);
                 }
+                
+                // Stop VU meter for this channel
+                this.stopChannelVUMeter(channelId);
                 
                 // Clear ICE candidate queue
                 if (this.iceCandidateQueues.has(key)) {
@@ -952,11 +1115,23 @@ class VoiceConferenceClient {
             if (audioData.source) {
                 audioData.source.disconnect();
             }
+            if (audioData.analyser) {
+                audioData.analyser.disconnect();
+            }
             if (audioData.gainNode) {
                 audioData.gainNode.disconnect();
             }
         });
         this.audioElements.clear();
+
+        // Stop all VU meters
+        this.vuMeterIntervals.forEach((intervalId, channelId) => {
+            clearInterval(intervalId);
+        });
+        this.vuMeterIntervals.clear();
+        
+        // Stop local VU meter
+        this.stopLocalVUMeter();
 
         // Clear active channels
         this.activeChannels.clear();
