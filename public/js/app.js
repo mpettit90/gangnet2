@@ -162,9 +162,9 @@ class VoiceConferenceClient {
         if (!this.audioContext) {
             try {
                 this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                console.log('Audio context created');
+                console.log('🔊 Audio context created, state:', this.audioContext.state);
             } catch (error) {
-                console.error('Failed to create audio context:', error);
+                console.error('❌ Failed to create audio context:', error);
                 return;
             }
         }
@@ -173,10 +173,17 @@ class VoiceConferenceClient {
         if (this.audioContext.state === 'suspended') {
             try {
                 await this.audioContext.resume();
-                console.log('Audio context resumed');
+                console.log('🔊 Audio context resumed, state:', this.audioContext.state);
+                if (this.audioContext.state === 'running') {
+                    console.log('✅ Audio context is now RUNNING - audio playback enabled');
+                }
             } catch (error) {
-                console.error('Failed to resume audio context:', error);
+                console.error('❌ Failed to resume audio context:', error);
             }
+        } else if (this.audioContext.state === 'running') {
+            // Already running, no action needed
+        } else {
+            console.warn('⚠️ AudioContext in unexpected state:', this.audioContext.state);
         }
     }
 
@@ -264,6 +271,17 @@ class VoiceConferenceClient {
 
         // Set PTT section visible by default
         pttSection.classList.add('visible');
+        
+        // Add document-level click handler to ensure audio context resumes
+        // This helps with browser autoplay policies
+        document.addEventListener('click', () => {
+            this.resumeAudioContext();
+        }, { once: false });
+        
+        // Also add touchstart for mobile
+        document.addEventListener('touchstart', () => {
+            this.resumeAudioContext();
+        }, { once: false });
     }
 
     /**
@@ -933,6 +951,9 @@ class VoiceConferenceClient {
             console.log(`✅ Audio setup complete for ${key}`);
             console.log(`✅ Volume: ${volume}, AudioContext state: ${this.audioContext.state}`);
             console.log(`✅ Audio graph: source → analyser → gainNode(${volume}) → destination`);
+            console.log(`✅ Source connected: ${source.numberOfOutputs > 0}`);
+            console.log(`✅ GainNode connected: ${gainNode.numberOfOutputs > 0}`);
+            console.log(`✅ Destination: ${this.audioContext.destination.maxChannelCount} channels available`);
             
             // Force audio context to resume again (some browsers need this)
             if (this.audioContext.state === 'suspended') {
@@ -940,7 +961,15 @@ class VoiceConferenceClient {
                 setTimeout(async () => {
                     await this.audioContext.resume();
                     console.log(`🔊 AudioContext state after retry: ${this.audioContext.state}`);
+                    if (this.audioContext.state === 'running') {
+                        console.log(`✅✅ AUDIO SHOULD NOW BE AUDIBLE for ${key}`);
+                    } else {
+                        console.error(`❌ AudioContext still not running. State: ${this.audioContext.state}`);
+                        console.error(`❌ PLEASE CLICK ANYWHERE ON THE PAGE TO ENABLE AUDIO`);
+                    }
                 }, 100);
+            } else {
+                console.log(`✅✅ AUDIO SHOULD BE AUDIBLE NOW for ${key}`);
             }
             
         } catch (error) {
