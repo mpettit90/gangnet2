@@ -515,11 +515,41 @@ class VoiceConferenceClient {
             this.activeChannels.add(channelId);
             this.socket.emit('join-channel', { channelId });
             
+            // Connect existing audio elements for this channel to destination
+            this.audioElements.forEach((audioData, key) => {
+                if (key.includes(channelId)) {
+                    if (audioData.gainNode && !audioData.connectedToDestination) {
+                        try {
+                            audioData.gainNode.connect(this.audioContext.destination);
+                            audioData.connectedToDestination = true;
+                            console.log(`🔊 Connected ${key} to speakers (channel toggled ON)`);
+                        } catch (e) {
+                            console.warn(`Error connecting ${key} to destination:`, e);
+                        }
+                    }
+                }
+            });
+            
             // Request list of users in channel to establish connections
             this.socket.emit('request-channel-users', { channelId });
         } else {
             this.activeChannels.delete(channelId);
             this.socket.emit('leave-channel', { channelId });
+            
+            // Disconnect audio elements for this channel from destination
+            this.audioElements.forEach((audioData, key) => {
+                if (key.includes(channelId)) {
+                    if (audioData.gainNode && audioData.connectedToDestination) {
+                        try {
+                            audioData.gainNode.disconnect(this.audioContext.destination);
+                            audioData.connectedToDestination = false;
+                            console.log(`🔇 Disconnected ${key} from speakers (channel toggled OFF)`);
+                        } catch (e) {
+                            console.warn(`Error disconnecting ${key} from destination:`, e);
+                        }
+                    }
+                }
+            });
             
             // Close all peer connections for this channel
             this.peerConnections.forEach((channelMap, socketId) => {
@@ -934,7 +964,18 @@ class VoiceConferenceClient {
             // Connect audio graph
             source.connect(analyser);
             analyser.connect(gainNode);
-            gainNode.connect(this.audioContext.destination);
+            
+            // Only connect to destination if channel is active
+            const isChannelActive = this.activeChannels.has(channelId);
+            console.log(`🔊 Channel ${channelId} is ${isChannelActive ? 'ACTIVE ✅' : 'INACTIVE ❌'}`);
+            
+            if (isChannelActive) {
+                gainNode.connect(this.audioContext.destination);
+                console.log(`✅✅ AUDIO SHOULD BE AUDIBLE NOW - Connected to speakers`);
+            } else {
+                console.log(`❌ CHANNEL NOT ACTIVE - Audio graph ready but not connected to speakers`);
+                console.log(`❌ PLEASE TOGGLE THE CHANNEL ON (green indicator) TO HEAR AUDIO`);
+            }
             
             // Store audio setup
             this.audioElements.set(key, {
@@ -942,7 +983,8 @@ class VoiceConferenceClient {
                 analyser: analyser,
                 gainNode: gainNode,
                 volume: volume,
-                stream: stream
+                stream: stream,
+                connectedToDestination: isChannelActive
             });
             
             // Start VU meter for this channel
@@ -950,9 +992,7 @@ class VoiceConferenceClient {
             
             console.log(`✅ Audio setup complete for ${key}`);
             console.log(`✅ Volume: ${volume}, AudioContext state: ${this.audioContext.state}`);
-            console.log(`✅ Audio graph: source → analyser → gainNode(${volume}) → destination`);
-            console.log(`✅ Source connected: ${source.numberOfOutputs > 0}`);
-            console.log(`✅ GainNode connected: ${gainNode.numberOfOutputs > 0}`);
+            console.log(`✅ Audio graph: source → analyser → gainNode(${volume}) ${isChannelActive ? '→ destination (PLAYING)' : '(READY BUT NOT PLAYING - Toggle channel ON)'}`);
             console.log(`✅ Destination: ${this.audioContext.destination.maxChannelCount} channels available`);
             
             // Force audio context to resume again (some browsers need this)
