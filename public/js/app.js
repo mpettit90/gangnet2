@@ -869,7 +869,8 @@ class VoiceConferenceClient {
             // Resume audio context if suspended (browser autoplay policy)
             await this.resumeAudioContext();
             
-            console.log(`Audio context state: ${this.audioContext.state}`);
+            console.log(`🔊 Audio context state: ${this.audioContext.state}`);
+            console.log(`🔊 Channel ${channelId} active:`, this.activeChannels.has(channelId));
             
             // Verify we have a valid stream
             if (!event.streams || !event.streams[0]) {
@@ -880,11 +881,11 @@ class VoiceConferenceClient {
             const stream = event.streams[0];
             const audioTracks = stream.getAudioTracks();
             
-            console.log(`Stream has ${audioTracks.length} audio tracks`);
+            console.log(`🔊 Stream has ${audioTracks.length} audio tracks`);
             
             // Check track state and add unmute listener
             audioTracks.forEach((track, i) => {
-                console.log(`Track ${i}: enabled=${track.enabled}, readyState=${track.readyState}, muted=${track.muted}`);
+                console.log(`🔊 Track ${i}: enabled=${track.enabled}, readyState=${track.readyState}, muted=${track.muted}`);
                 
                 if (track.muted) {
                     console.warn(`⚠️ Track ${i} is MUTED - audio will play when remote peer unmutes`);
@@ -909,7 +910,8 @@ class VoiceConferenceClient {
             const volume = volumeSlider ? volumeSlider.value / 100 : 0.75;
             gainNode.gain.value = volume;
             
-            console.log(`Connecting audio graph with volume: ${volume}`);
+            console.log(`🔊 Connecting audio graph with volume: ${volume}`);
+            console.log(`🔊 Audio destination: ${this.audioContext.destination ? 'available' : 'not available'}`);
             
             // Connect audio graph
             source.connect(analyser);
@@ -928,10 +930,21 @@ class VoiceConferenceClient {
             // Start VU meter for this channel
             this.startChannelVUMeter(channelId, analyser);
             
-            console.log(`Audio setup complete for ${key}, volume: ${volume}, audioContext.state: ${this.audioContext.state}`);
+            console.log(`✅ Audio setup complete for ${key}`);
+            console.log(`✅ Volume: ${volume}, AudioContext state: ${this.audioContext.state}`);
+            console.log(`✅ Audio graph: source → analyser → gainNode(${volume}) → destination`);
+            
+            // Force audio context to resume again (some browsers need this)
+            if (this.audioContext.state === 'suspended') {
+                console.warn('⚠️ AudioContext still suspended after resume(), trying again...');
+                setTimeout(async () => {
+                    await this.audioContext.resume();
+                    console.log(`🔊 AudioContext state after retry: ${this.audioContext.state}`);
+                }, 100);
+            }
             
         } catch (error) {
-            console.error(`Error setting up audio for ${key}:`, error);
+            console.error(`❌ Error setting up audio for ${key}:`, error);
             console.error('Error stack:', error.stack);
         }
     }
